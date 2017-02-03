@@ -8,6 +8,7 @@ import (
 	"crypto/rsa"
 	"fmt"
 	"net/http"
+	"sync"
 
 	"gopkg.in/square/go-jose.v1"
 )
@@ -16,6 +17,7 @@ type jws struct {
 	directoryURL string
 	privKey      crypto.PrivateKey
 	nonces       []string
+	sync.Mutex
 }
 
 func keyAsJWK(key interface{}) *jose.JsonWebKey {
@@ -30,7 +32,9 @@ func keyAsJWK(key interface{}) *jose.JsonWebKey {
 	}
 }
 
-// Posts a JWS signed message to the specified URL
+// Posts a JWS signed message to the specified URL.
+// It does NOT close the response body, so the caller must
+// do that if no error was returned.
 func (j *jws) post(url string, content []byte) (*http.Response, error) {
 	signedContent, err := j.signContent(content)
 	if err != nil {
@@ -42,6 +46,8 @@ func (j *jws) post(url string, content []byte) (*http.Response, error) {
 		return nil, err
 	}
 
+	j.Lock()
+	defer j.Unlock()
 	j.getNonceFromResponse(resp)
 
 	return resp, err
@@ -94,6 +100,8 @@ func (j *jws) getNonce() error {
 }
 
 func (j *jws) Nonce() (string, error) {
+	j.Lock()
+	defer j.Unlock()
 	nonce := ""
 	if len(j.nonces) == 0 {
 		err := j.getNonce()
@@ -101,7 +109,9 @@ func (j *jws) Nonce() (string, error) {
 			return nonce, err
 		}
 	}
-
+	if len(j.nonces) == 0 {
+		return "", fmt.Errorf("Can't get nonce")
+	}
 	nonce, j.nonces = j.nonces[len(j.nonces)-1], j.nonces[:len(j.nonces)-1]
 	return nonce, nil
 }

@@ -18,6 +18,7 @@ import (
 
 const (
 	maxRetries = 5
+	route53TTL = 10
 )
 
 // DNSProvider implements the acme.ChallengeProvider interface
@@ -69,22 +70,22 @@ func NewDNSProvider() (*DNSProvider, error) {
 
 // Present creates a TXT record using the specified parameters
 func (r *DNSProvider) Present(domain, token, keyAuth string) error {
-	fqdn, value, ttl := acme.DNS01Record(domain, keyAuth)
+	fqdn, value, _ := acme.DNS01Record(domain, keyAuth)
 	value = `"` + value + `"`
-	return r.changeRecord("UPSERT", fqdn, value, ttl)
+	return r.changeRecord("UPSERT", fqdn, value, route53TTL)
 }
 
 // CleanUp removes the TXT record matching the specified parameters
 func (r *DNSProvider) CleanUp(domain, token, keyAuth string) error {
-	fqdn, value, ttl := acme.DNS01Record(domain, keyAuth)
+	fqdn, value, _ := acme.DNS01Record(domain, keyAuth)
 	value = `"` + value + `"`
-	return r.changeRecord("DELETE", fqdn, value, ttl)
+	return r.changeRecord("DELETE", fqdn, value, route53TTL)
 }
 
 func (r *DNSProvider) changeRecord(action, fqdn, value string, ttl int) error {
-	hostedZoneID, err := r.getHostedZoneID(fqdn)
+	hostedZoneID, err := getHostedZoneID(fqdn, r.client)
 	if err != nil {
-		return err
+		return fmt.Errorf("Failed to determine Route 53 hosted zone ID: %v", err)
 	}
 
 	recordSet := newTXTRecordSet(fqdn, value, ttl)
@@ -103,18 +104,18 @@ func (r *DNSProvider) changeRecord(action, fqdn, value string, ttl int) error {
 
 	resp, err := r.client.ChangeResourceRecordSets(reqParams)
 	if err != nil {
-		return err
+		return fmt.Errorf("Failed to change Route 53 record set: %v", err)
 	}
 
-	statusId := resp.ChangeInfo.Id
+	statusID := resp.ChangeInfo.Id
 
 	return acme.WaitFor(120*time.Second, 4*time.Second, func() (bool, error) {
 		reqParams := &route53.GetChangeInput{
-			Id: statusId,
+			Id: statusID,
 		}
 		resp, err := r.client.GetChange(reqParams)
 		if err != nil {
-			return false, err
+			return false, fmt.Errorf("Failed to query Route 53 change status: %v", err)
 		}
 		if *resp.ChangeInfo.Status == route53.ChangeStatusInsync {
 			return true, nil
@@ -123,33 +124,39 @@ func (r *DNSProvider) changeRecord(action, fqdn, value string, ttl int) error {
 	})
 }
 
-func (r *DNSProvider) getHostedZoneID(fqdn string) (string, error) {
-	authZone, err := acme.FindZoneByFqdn(fqdn, acme.RecursiveNameserver)
+func getHostedZoneID(fqdn string, client *route53.Route53) (string, error) {
+	authZone, err := acme.FindZoneByFqdn(fqdn, acme.RecursiveNameservers)
 	if err != nil {
 		return "", err
 	}
 
 	// .DNSName should not have a trailing dot
 	reqParams := &route53.ListHostedZonesByNameInput{
-		DNSName:  aws.String(acme.UnFqdn(authZone)),
-		MaxItems: aws.String("1"),
+		DNSName: aws.String(acme.UnFqdn(authZone)),
 	}
-	resp, err := r.client.ListHostedZonesByName(reqParams)
+	resp, err := client.ListHostedZonesByName(reqParams)
 	if err != nil {
 		return "", err
 	}
 
-	// .Name has a trailing dot
-	if len(resp.HostedZones) == 0 || *resp.HostedZones[0].Name != authZone {
-		return "", fmt.Errorf("Zone %s not found in Route53 for domain %s", authZone, fqdn)
+	var hostedZoneID string
+	for _, hostedZone := range resp.HostedZones {
+		// .Name has a trailing dot
+		if !*hostedZone.Config.PrivateZone && *hostedZone.Name == authZone {
+			hostedZoneID = *hostedZone.Id
+			break
+		}
 	}
 
-	zoneId := *resp.HostedZones[0].Id
-	if strings.HasPrefix(zoneId, "/hostedzone/") {
-		zoneId = strings.TrimPrefix(zoneId, "/hostedzone/")
+	if len(hostedZoneID) == 0 {
+		return "", fmt.Errorf("Zone %s not found in Route 53 for domain %s", authZone, fqdn)
 	}
 
-	return zoneId, nil
+	if strings.HasPrefix(hostedZoneID, "/hostedzone/") {
+		hostedZoneID = strings.TrimPrefix(hostedZoneID, "/hostedzone/")
+	}
+
+	return hostedZoneID, nil
 }
 
 func newTXTRecordSet(fqdn, value string, ttl int) *route53.ResourceRecordSet {

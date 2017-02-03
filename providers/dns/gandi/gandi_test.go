@@ -71,7 +71,7 @@ func TestDNSProvider(t *testing.T) {
 	}))
 	defer fakeServer.Close()
 	// define function to override findZoneByFqdn with
-	fakeFindZoneByFqdn := func(fqdn, nameserver string) (string, error) {
+	fakeFindZoneByFqdn := func(fqdn string, nameserver []string) (string, error) {
 		return "example.com.", nil
 	}
 	// override gandi endpoint and findZoneByFqdn function
@@ -141,7 +141,7 @@ func TestDNSProviderLive(t *testing.T) {
 	}
 	// complete the challenge
 	bundle := false
-	_, failures := client.ObtainCertificate([]string{domain}, bundle, nil)
+	_, failures := client.ObtainCertificate([]string{domain}, bundle, nil, false)
 	if len(failures) > 0 {
 		t.Fatal(failures)
 	}
@@ -496,7 +496,7 @@ var serverResponses = map[string]string{
 </member>
 <member>
 <name>id</name>
-<value><int>3333333333</int></value>
+<value><int>333333333</int></value>
 </member>
 <member>
 <name>value</name>
