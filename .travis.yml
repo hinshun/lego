@@ -1,11 +1,14 @@
 language: go
 go:
-- 1.4.3
-- 1.5.3
-- 1.6
+- 1.6.3
+- 1.7
+- tip
+services:
+  - memcached
+env:
+  - MEMCACHED_HOSTS=localhost:11211
 install:
 - go get -t ./...
-- go get golang.org/x/tools/cmd/vet
 script:
 - go vet ./...
 - go test -v ./...
