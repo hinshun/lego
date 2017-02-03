@@ -30,7 +30,7 @@ func (s *TLSProviderServer) Present(domain, token, keyAuth string) error {
 		s.port = "443"
 	}
 
-	cert, _, err := TLSSNI01ChallengeCert(keyAuth)
+	cert, _, err := TLSSNI01ChallengeCertDomain(keyAuth)
 	if err != nil {
 		return err
 	}

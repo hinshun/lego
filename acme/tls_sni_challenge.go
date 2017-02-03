@@ -40,8 +40,8 @@ func (t *tlsSNIChallenge) Solve(chlng challenge, domain string) error {
 	return t.validate(t.jws, domain, chlng.URI, challenge{Resource: "challenge", Type: chlng.Type, Token: chlng.Token, KeyAuthorization: keyAuth})
 }
 
-// TLSSNI01ChallengeCert returns a certificate and target domain for the `tls-sni-01` challenge
-func TLSSNI01ChallengeCert(keyAuth string) (tls.Certificate, string, error) {
+// TLSSNI01ChallengeCertDomain returns a certificate and target domain for the `tls-sni-01` challenge
+func TLSSNI01ChallengeCertDomain(keyAuth string) (tls.Certificate, string, error) {
 	// generate a new RSA key for the certificates
 	tempPrivKey, err := generatePrivateKey(RSA2048)
 	if err != nil {
